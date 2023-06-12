@@ -4,7 +4,7 @@
 Fork of [Google's ukip](#!/usr/bin/env python3)
 
 ## Improvements
-- Added volume up/down keycodes
+- Added volume up/down keycodes, as well as F23 and F24 keycodes
 - Allows words in the allowlist
 - Allowlist now applies to monitor mode aswell
 - Log output contains violating keycodes
