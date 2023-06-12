@@ -1,6 +1,14 @@
 # USB Keystroke Injection Protection
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
+Fork of [Google's ukip](#!/usr/bin/env python3)
+
+## Improvements
+- Added volume up/down keycodes
+- Allows words in the allowlist
+- Allowlist now applies to monitor mode aswell
+- Log output contains violating keycodes
+
 ## Overview
 This tool is a daemon for blocking USB keystroke injection devices on Linux systems.
 
