@@ -210,11 +210,9 @@ def check_local_allowlist(product_id: Text,
           if allowlist[0] == 'none':
             return AllowlistConfigReturn(allowlist=[], device_present=False)
 
-          # If all of the checks succeed, return the allowlist (but only if it
-          # is an allowlist, and not a word).
-          if len(allowlist[0]) == 1:
-            return AllowlistConfigReturn(
-                allowlist=val.split(','), device_present=True)
+          # If all of the checks succeed, return the allowlist
+          return AllowlistConfigReturn(
+              allowlist=val.split(','), device_present=True)
         except (ValueError, IndexError) as vi:
           raise AllowlistFileError(
               'The format of the config file /etc/ukip/allowlist seems to be'
@@ -269,6 +267,38 @@ def check_for_attack(event_device_path: Text, device: usb.core.Device) -> bool:
       return False
 
 
+def is_allowed(device: usb.core.Device, event_device_path: Text) -> bool:
+  """Checks if the device and characters typed are in the allow list
+
+  Args:
+    device: A USB device (usb.core.DEVICE)
+  
+  Returns:
+    True: If key sequence of that device is allowed. False otherwise
+  """
+  local_allowlist = check_local_allowlist(
+    hex(device.idProduct), hex(device.idVendor))
+
+  # Device is present in the allowlist and all characters are allowed.
+  if local_allowlist.device_present and not local_allowlist.allowlist:
+    return True
+  # Device is present and an allowlist is specified.
+  elif local_allowlist.device_present and local_allowlist.allowlist:
+    allowlist = local_allowlist.allowlist
+  # Device is not in the allowlist or keyword is 'none'.
+  # i.e.: not local_allowlist.device_present and not local_allowlist.allowlist
+  else:
+    allowlist = []
+
+  # If all typed characters are in the allowlist, return. Otherwise run through
+  # the rest of the function.
+  if not set(_event_devices_keystrokes[event_device_path]).difference(
+      set(allowlist)):
+    return True
+
+  return False
+
+
 def enforce_monitor_mode(device: usb.core.Device, event_device_path: Text):
   """Enforce the MONITOR mode on a given device.
 
@@ -279,11 +309,16 @@ def enforce_monitor_mode(device: usb.core.Device, event_device_path: Text):
     device: A USB device (usb.core.Device).
     event_device_path: The path to the event device (/dev/input/*).
   """
+
+  if is_allowed(device, event_device_path):
+    return
+
   log.warning(
       '[UKIP] The device %s with the vendor id %s and the product id'
-      ' %s would have been blocked. The causing timings are: %s.',
+      ' %s would have been blocked. The causing timings are: %s. The causing keystrokes are: %s',
       device.product if device.product else 'UNKNOWN', hex(device.idVendor),
-      hex(device.idProduct), _event_devices_timings[event_device_path])
+      hex(device.idProduct), _event_devices_timings[event_device_path],
+      _event_devices_keystrokes[event_device_path])
 
 
 def enforce_hardening_mode(device: usb.core.Device, event_device_path: Text):
@@ -302,27 +337,7 @@ def enforce_hardening_mode(device: usb.core.Device, event_device_path: Text):
     event_device_path: The path to the event device (/dev/input/*).
   """
 
-  product_id = hex(device.idProduct)
-  vendor_id = hex(device.idVendor)
-
-  local_allowlist = check_local_allowlist(
-      hex(device.idProduct), hex(device.idVendor))
-
-  # Device is present in the allowlist and all characters are allowed.
-  if local_allowlist.device_present and not local_allowlist.allowlist:
-    return
-  # Device is present and an allowlist is specified.
-  elif local_allowlist.device_present and local_allowlist.allowlist:
-    allowlist = local_allowlist.allowlist
-  # Device is not in the allowlist or keyword is 'none'.
-  # i.e.: not local_allowlist.device_present and not local_allowlist.allowlist
-  else:
-    allowlist = []
-
-  # If all typed characters are in the allowlist, return. Otherwise run through
-  # the rest of the function.
-  if not set(_event_devices_keystrokes[event_device_path]).difference(
-      set(allowlist)):
+  if is_allowed(device, event_device_path):
     return
 
   pid_and_vid = '%s:%s' % (product_id, vendor_id)
@@ -343,8 +358,9 @@ def enforce_hardening_mode(device: usb.core.Device, event_device_path: Text):
             log.warning(
                 '[UKIP] The device with the vendor id %s and the '
                 'product id %s was blocked. The causing timings were: '
-                '%s.', vendor_id, product_id,
-                _event_devices_timings[event_device_path])
+                '%s. The causing keystrokes are: %s', vendor_id, product_id,
+                _event_devices_timings[event_device_path],
+                _event_devices_keystrokes[event_device_path])
 
         except (IOError, OSError, ValueError, usb.core.USBError) as e:
           log.warning(
@@ -455,6 +471,8 @@ def monitor_device_thread(device: pyudev.Device, vendor_id: int,
 
         if event.value == KEY_DOWN and event.type == evdev.ecodes.EV_KEY:
           keystroke_in_ms = (event.sec * 1000000) + event.usec
+
+          # log.info(f'Scan Code: {evdev.categorize(event).scancode}')
 
           if caps:
             keystroke = capscodes.get(evdev.categorize(event).scancode)
